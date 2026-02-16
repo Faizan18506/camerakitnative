@@ -20,7 +20,7 @@ import com.snap.camerakit.support.camerax.CameraXImageProcessorSource
 
 class CameraActivity : AppCompatActivity() {
 
-    private val TAG = "CameraActivity"
+    private val TAG = "CameraActivity1"
     private val LENS_GROUP_ID = "b2746ec0-d32d-4f48-94cc-1bb02dd4664f"
 
     private lateinit var imageProcessorSource: CameraXImageProcessorSource
@@ -31,6 +31,8 @@ class CameraActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
             if (isGranted) {
                 startPreview()
+            } else {
+                finish()
             }
         }
 
@@ -39,48 +41,51 @@ class CameraActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_camera)
 
-        Log.d(TAG, "CameraActivity started")
-
         progressBar = findViewById(R.id.progress_bar)
         progressBar.visibility = View.VISIBLE
 
-        // Step 3: Check support
         if (!supported(this)) {
             Toast.makeText(this, "Camera Kit not supported", Toast.LENGTH_SHORT).show()
             finish()
             return
         }
 
-        // Step 4: Initialize processor
         imageProcessorSource = CameraXImageProcessorSource(
             context = this, lifecycleOwner = this
         )
 
-        // Step 7: Handle permissions
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startPreview()
         } else {
             requestPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
 
-        // Step 9 & 10: Initialize Session
-        cameraKitSession = Session(context = this) {
-            imageProcessorSource(imageProcessorSource)
-            attachTo(findViewById(R.id.camera_kit_stub))
-        }
-        // Section 3 - Step 1 & 2: Apply Lens
-        .apply {
-            lenses.repository.observe(
+        try {
+            cameraKitSession = Session(context = this) {
+                imageProcessorSource(imageProcessorSource)
+                attachTo(findViewById(R.id.camera_kit_stub))
+            }
+
+            cameraKitSession.lenses.repository.observe(
                 LensesComponent.Repository.QueryCriteria.Available(LENS_GROUP_ID)
             ) { result ->
-                result.whenHasFirst { requestedLens ->
-                    Log.d(TAG, "Applying lens: ${requestedLens.name}")
-                    lenses.processor.apply(requestedLens)
+                val lensList = result.lenses
+                Log.d(TAG, "Lenses found: ${lensList.size}")
+
+                // Null-safe search for an interesting lens
+                val targetLens = lensList.find { it.name?.contains("Distort", ignoreCase = true) == true } 
+                                 ?: if (lensList.size > 3) lensList[3] else lensList.firstOrNull()
+
+                targetLens?.let { lens ->
+                    Log.d(TAG, "Applying lens: ${lens.name} (ID: ${lens.id})")
+                    cameraKitSession.lenses.processor.apply(lens)
                     runOnUiThread {
                         progressBar.visibility = View.GONE
                     }
                 }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Setup error: ${e.message}")
         }
     }
 
@@ -89,10 +94,16 @@ class CameraActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        // Step 3 (Section 3): Close session
         if (::cameraKitSession.isInitialized) {
             cameraKitSession.close()
         }
         super.onDestroy()
     }
 }
+
+// Helper to handle sealed class result
+private val LensesComponent.Repository.Result.lenses: List<LensesComponent.Lens>
+    get() = when (this) {
+        is LensesComponent.Repository.Result.Some -> lenses
+        else -> emptyList()
+    }
