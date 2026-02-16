@@ -46,7 +46,7 @@ flutter {
     source = "../.."
 }
 dependencies {
-    val cameraKitVersion = "1.42.0"
+    val cameraKitVersion = "1.46.0"
 
     // Core Camera Kit SDK
     implementation("com.snap.camerakit:camerakit:$cameraKitVersion")
@@ -54,6 +54,12 @@ dependencies {
     // Support libraries for CameraX and Layouts
     implementation("com.snap.camerakit:support-camerax:$cameraKitVersion")
     implementation("com.snap.camerakit:support-camera-layout:$cameraKitVersion")
+    implementation("com.snap.camerakit:support-permissions:$cameraKitVersion")
+    implementation("com.snap.camerakit:support-snap-attribution:$cameraKitVersion")
+
+    // Image loading for lens icons
+    implementation("com.github.bumptech.glide:glide:4.12.0")
+    annotationProcessor("com.github.bumptech.glide:compiler:4.12.0")
 
     // Kotlin Coroutines for async tasks
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")

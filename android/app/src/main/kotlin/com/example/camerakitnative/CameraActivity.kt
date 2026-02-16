@@ -11,12 +11,16 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.snap.camerakit.Session
 import com.snap.camerakit.invoke
 import com.snap.camerakit.lenses.LensesComponent
-import com.snap.camerakit.lenses.whenHasFirst
+import com.snap.camerakit.lenses.whenHasSome
 import com.snap.camerakit.supported
 import com.snap.camerakit.support.camerax.CameraXImageProcessorSource
+import com.snap.camerakit.support.permissions.HeadlessFragmentPermissionRequester
+import java.io.Closeable
 
 class CameraActivity : AppCompatActivity() {
 
@@ -26,23 +30,20 @@ class CameraActivity : AppCompatActivity() {
     private lateinit var imageProcessorSource: CameraXImageProcessorSource
     private lateinit var cameraKitSession: Session
     private lateinit var progressBar: ProgressBar
-
-    private val requestPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-            if (isGranted) {
-                startPreview()
-            } else {
-                finish()
-            }
-        }
+    
+    private lateinit var lensesRecyclerView: RecyclerView
+    private lateinit var lensesAdapter: LensesAdapter
+    
+    private var permissionRequest: Closeable? = null
+    private var lensRepositorySubscription: Closeable? = null
+    private var isCameraFacingFront = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(R.style.CameraKitTheme)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_camera)
 
-        progressBar = findViewById(R.id.progress_bar)
-        progressBar.visibility = View.VISIBLE
+        Log.d(TAG, "CameraActivity started (Reference: Sample 1.46.0)")
 
         if (!supported(this)) {
             Toast.makeText(this, "Camera Kit not supported", Toast.LENGTH_SHORT).show()
@@ -50,60 +51,84 @@ class CameraActivity : AppCompatActivity() {
             return
         }
 
+        progressBar = findViewById(R.id.progress_bar)
+        progressBar.visibility = View.VISIBLE
+        lensesRecyclerView = findViewById(R.id.lenses_recycler_view)
+        
+        // Setup Custom Carousel
+        lensesRecyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        lensesAdapter = LensesAdapter { selectedLens ->
+            Log.d(TAG, "Applying lens: ${selectedLens.name}")
+            applyLens(selectedLens)
+        }
+        lensesRecyclerView.adapter = lensesAdapter
+
+        // Initialize CameraX source
         imageProcessorSource = CameraXImageProcessorSource(
             context = this, lifecycleOwner = this
         )
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            startPreview()
-        } else {
-            requestPermissionLauncher.launch(Manifest.permission.CAMERA)
+        // Initialize Session - Following 1.46.0 Sample
+        cameraKitSession = Session(this) {
+            imageProcessorSource(imageProcessorSource)
+            attachTo(findViewById(R.id.camera_kit_stub))
         }
 
-        try {
-            cameraKitSession = Session(context = this) {
-                imageProcessorSource(imageProcessorSource)
-                attachTo(findViewById(R.id.camera_kit_stub))
-            }
+        // Handle Permissions using HeadlessFragmentPermissionRequester from support-permissions
+        getPermissions()
 
-            cameraKitSession.lenses.repository.observe(
-                LensesComponent.Repository.QueryCriteria.Available(LENS_GROUP_ID)
-            ) { result ->
-                val lensList = result.lenses
-                Log.d(TAG, "Lenses found: ${lensList.size}")
-
-                // Null-safe search for an interesting lens
-                val targetLens = lensList.find { it.name?.contains("Distort", ignoreCase = true) == true } 
-                                 ?: if (lensList.size > 3) lensList[3] else lensList.firstOrNull()
-
-                targetLens?.let { lens ->
-                    Log.d(TAG, "Applying lens: ${lens.name} (ID: ${lens.id})")
-                    cameraKitSession.lenses.processor.apply(lens)
-                    runOnUiThread {
-                        progressBar.visibility = View.GONE
+        // Observe Repository - Following 1.46.0 Sample
+        lensRepositorySubscription = cameraKitSession.lenses.repository.observe(
+            LensesComponent.Repository.QueryCriteria.Available(setOf(LENS_GROUP_ID))
+        ) { result ->
+            result.whenHasSome { lenses ->
+                Log.d(TAG, "Lenses loaded: ${lenses.size}")
+                runOnUiThread {
+                    lensesAdapter.submitList(lenses)
+                    progressBar.visibility = View.GONE
+                    
+                    // Apply first lens by default if desired
+                    if (lenses.isNotEmpty()) {
+                        applyLens(lenses.first())
                     }
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Setup error: ${e.message}")
+        }
+    }
+
+    private fun applyLens(lens: LensesComponent.Lens) {
+        cameraKitSession.lenses.processor.apply(lens) { success ->
+            if (success) {
+                runOnUiThread {
+                    lensesAdapter.select(lens)
+                }
+            }
+        }
+    }
+
+    private fun getPermissions() {
+        val requiredPermissions = arrayOf(Manifest.permission.CAMERA)
+        permissionRequest = HeadlessFragmentPermissionRequester(this, requiredPermissions.toSet()) { permissions ->
+            if (permissions[Manifest.permission.CAMERA] == true) {
+                startPreview()
+            } else {
+                Log.e(TAG, "Camera permission denied")
+                Toast.makeText(this, "Camera permission is required", Toast.LENGTH_SHORT).show()
+                finish()
+            }
         }
     }
 
     private fun startPreview() {
-        imageProcessorSource.startPreview(true)
+        imageProcessorSource.startPreview(isCameraFacingFront)
     }
 
     override fun onDestroy() {
+        permissionRequest?.close()
+        lensRepositorySubscription?.close()
         if (::cameraKitSession.isInitialized) {
             cameraKitSession.close()
         }
         super.onDestroy()
     }
 }
-
-// Helper to handle sealed class result
-private val LensesComponent.Repository.Result.lenses: List<LensesComponent.Lens>
-    get() = when (this) {
-        is LensesComponent.Repository.Result.Some -> lenses
-        else -> emptyList()
-    }

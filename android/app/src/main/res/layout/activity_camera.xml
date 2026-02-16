@@ -10,6 +10,18 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Custom Carousel: RecyclerView at the bottom -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/lenses_recycler_view"
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="30dp"
+        android:clipToPadding="false"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp" />
+
     <ProgressBar
         android:id="@+id/progress_bar"
         android:layout_width="60dp"
