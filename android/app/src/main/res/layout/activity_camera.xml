@@ -1,16 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- This ViewStub will inflate the Camera Kit session view -->
+    <!-- Camera preview window -->
     <ViewStub
         android:id="@+id/camera_kit_stub"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Custom Carousel: RecyclerView without any background bar -->
+    <!-- Flip Camera Button (Top Right) -->
+    <ImageButton
+        android:id="@+id/camera_flip_button"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="40dp"
+        android:layout_marginEnd="20dp"
+        android:background="@android:drawable/screen_background_dark_transparent"
+        android:padding="8dp"
+        android:src="@android:drawable/ic_menu_rotate"
+        android:tint="#FFFFFF"
+        android:contentDescription="Flip Camera" />
+
+    <!-- Custom Carousel: RecyclerView -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/lenses_recycler_view"
         android:layout_width="match_parent"

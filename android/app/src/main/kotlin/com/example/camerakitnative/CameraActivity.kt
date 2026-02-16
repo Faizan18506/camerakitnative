@@ -1,16 +1,13 @@
 package com.example.camerakitnative
 
 import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.view.View
-import android.view.ViewStub
+import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.snap.camerakit.Session
@@ -55,39 +52,35 @@ class CameraActivity : AppCompatActivity() {
         progressBar.visibility = View.VISIBLE
         lensesRecyclerView = findViewById(R.id.lenses_recycler_view)
         
-        // Setup Custom Carousel
+        // Setup Flip Button
+        findViewById<ImageButton>(R.id.camera_flip_button).setOnClickListener {
+            flipCamera()
+        }
+
         lensesRecyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         lensesAdapter = LensesAdapter { selectedLens ->
-            Log.d(TAG, "Applying lens: ${selectedLens.name}")
             applyLens(selectedLens)
         }
         lensesRecyclerView.adapter = lensesAdapter
 
-        // Initialize CameraX source
         imageProcessorSource = CameraXImageProcessorSource(
             context = this, lifecycleOwner = this
         )
 
-        // Initialize Session - Following 1.46.0 Sample
         cameraKitSession = Session(this) {
             imageProcessorSource(imageProcessorSource)
             attachTo(findViewById(R.id.camera_kit_stub))
         }
 
-        // Handle Permissions using HeadlessFragmentPermissionRequester from support-permissions
         getPermissions()
 
-        // Observe Repository - Following 1.46.0 Sample
         lensRepositorySubscription = cameraKitSession.lenses.repository.observe(
             LensesComponent.Repository.QueryCriteria.Available(setOf(LENS_GROUP_ID))
         ) { result ->
             result.whenHasSome { lenses ->
-                Log.d(TAG, "Lenses loaded: ${lenses.size}")
                 runOnUiThread {
                     lensesAdapter.submitList(lenses)
                     progressBar.visibility = View.GONE
-                    
-                    // Apply first lens by default if desired
                     if (lenses.isNotEmpty()) {
                         applyLens(lenses.first())
                     }
@@ -97,6 +90,12 @@ class CameraActivity : AppCompatActivity() {
     }
 
     private fun applyLens(lens: LensesComponent.Lens) {
+        // Auto-flip camera if lens doesn't match current facing - Following Sample Logic
+        val usingCorrectCamera = isCameraFacingFront.xor(lens.facingPreference != LensesComponent.Lens.Facing.FRONT)
+        if (!usingCorrectCamera) {
+            flipCamera()
+        }
+
         cameraKitSession.lenses.processor.apply(lens) { success ->
             if (success) {
                 runOnUiThread {
@@ -106,14 +105,20 @@ class CameraActivity : AppCompatActivity() {
         }
     }
 
+    private fun flipCamera() {
+        runOnUiThread {
+            isCameraFacingFront = !isCameraFacingFront
+            imageProcessorSource.startPreview(isCameraFacingFront)
+            Log.d(TAG, "Camera flipped. Front: $isCameraFacingFront")
+        }
+    }
+
     private fun getPermissions() {
         val requiredPermissions = arrayOf(Manifest.permission.CAMERA)
         permissionRequest = HeadlessFragmentPermissionRequester(this, requiredPermissions.toSet()) { permissions ->
             if (permissions[Manifest.permission.CAMERA] == true) {
                 startPreview()
             } else {
-                Log.e(TAG, "Camera permission denied")
-                Toast.makeText(this, "Camera permission is required", Toast.LENGTH_SHORT).show()
                 finish()
             }
         }
