@@ -11,13 +11,16 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
-
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
+
+        jvmTarget = "1.8"
     }
+//    kotlinOptions {
+//        jvmTarget = JavaVersion.VERSION_1_8.toString()
+//    }
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
@@ -41,4 +44,22 @@ android {
 
 flutter {
     source = "../.."
+}
+dependencies {
+    val cameraKitVersion = "1.42.0"
+
+    // Core Camera Kit SDK
+    implementation("com.snap.camerakit:camerakit:$cameraKitVersion")
+    implementation("com.snap.camerakit:camerakit-kotlin:${cameraKitVersion}")
+    // Support libraries for CameraX and Layouts
+    implementation("com.snap.camerakit:support-camerax:$cameraKitVersion")
+    implementation("com.snap.camerakit:support-camera-layout:$cameraKitVersion")
+
+    // Kotlin Coroutines for async tasks
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // AndroidX Support
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    implementation("com.google.android.material:material:1.9.0")
 }

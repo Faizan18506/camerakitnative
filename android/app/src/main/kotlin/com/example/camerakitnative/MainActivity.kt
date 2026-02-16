@@ -1,38 +1,41 @@
 package com.example.camerakitnative
 
+import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
 
-    // MethodChannel name must match the one in Flutter code
+    private val TAG = "MainActivityNative"
     private val CHANNEL_NAME = "com.example.camerakitnative/camera_kit"
-
-    // Reference to MethodChannel to prevent garbage collection
     private var methodChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // Create MethodChannel
         methodChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             CHANNEL_NAME
         )
 
-        // Set up method call handler
         methodChannel?.setMethodCallHandler { call, result ->
-            // Handle method calls from Flutter
             when (call.method) {
                 "launchCameraKit" -> {
-                    val message = launchCameraKit()
-                    result.success(message)
+                    Log.d(TAG, "launchCameraKit method called from Flutter")
+                    try {
+                        val intent = Intent(this, CameraActivity::class.java)
+                        startActivity(intent)
+                        result.success("Camera Activity Started")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error launching CameraActivity: ${e.message}")
+                        result.error("LAUNCH_ERROR", e.message, null)
+                    }
                 }
                 "getCameraStatus" -> {
-                    val status = getCameraStatus()
-                    result.success(status)
+                    result.success("Ready")
                 }
                 else -> {
                     result.notImplemented()
@@ -41,20 +44,8 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /**
-     * Launch Camera Kit - This is the main method called from Flutter
-     * In a real implementation, this would open the camera interface
-     */
     private fun launchCameraKit(): String {
-        // TODO: Implement actual camera kit launch logic here
-        // For now, we return a success message
-        
-        // Example of what you might do:
-        // - Start camera activity
-        // - Initialize camera preview
-        // - Open camera view
-        
-        return "Camera Kit launched successfully! (Native Android)"
+        return "Legacy method - not used"
     }
 
     /**
