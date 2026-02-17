@@ -5,9 +5,9 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Reverting back to ViewStub as required by Camera Kit Session.attachTo() -->
-    <ViewStub
-        android:id="@+id/camera_kit_stub"
+    <!-- Manual Preview Surface for SurfaceReplicator -->
+    <SurfaceView
+        android:id="@+id/manual_preview_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
@@ -19,11 +19,11 @@
         android:layout_gravity="top|end"
         android:layout_marginTop="40dp"
         android:layout_marginEnd="20dp"
-        android:background="@android:drawable/screen_background_dark_transparent"
+        android:background="@drawable/circle_button_bg"
         android:padding="8dp"
-        android:src="@android:drawable/ic_menu_rotate"
-        android:tint="#FFFFFF"
-        android:contentDescription="Flip Camera" />
+        android:src="@drawable/ic_camera_flip"
+        android:contentDescription="Flip Camera"
+        app:tint="#FFFFFF" />
 
     <!-- Go Live Button (Below Flip Button) -->
     <Button
@@ -37,7 +37,7 @@
         android:backgroundTint="#FF0000"
         android:textColor="#FFFFFF" />
 
-    <!-- Custom Carousel: RecyclerView -->
+    <!-- Lenses Carousel -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/lenses_recycler_view"
         android:layout_width="match_parent"

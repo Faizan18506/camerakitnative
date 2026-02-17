@@ -3,8 +3,10 @@ package com.example.camerakitnative
 import android.Manifest
 import android.os.Bundle
 import android.util.Log
+import android.view.Surface
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.View
-import android.view.ViewStub
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.ProgressBar
@@ -26,7 +28,6 @@ import java.io.Closeable
 class CameraActivity : AppCompatActivity(), ConnectCheckerRtmp {
 
     private val TAG = "CameraActivity1"
-    private val RTMP_TAG = "RTMP_STREAM"
     private val LENS_GROUP_ID = "b2746ec0-d32d-4f48-94cc-1bb02dd4664f"
     private val RTMP_URL = "rtmp://95.217.67.76:1935/live/test"
 
@@ -37,21 +38,21 @@ class CameraActivity : AppCompatActivity(), ConnectCheckerRtmp {
     private lateinit var lensesRecyclerView: RecyclerView
     private lateinit var lensesAdapter: LensesAdapter
     
-    private lateinit var rtmpStreamManager: RtmpStreamManager
-    private var streamReplicator: StreamReplicator? = null
+    // New simplified architecture
+    private lateinit var rtmpManager: RtmpManager
+    private var surfaceReplicator: SurfaceReplicator? = null
     
     private var permissionRequest: Closeable? = null
     private var lensRepositorySubscription: Closeable? = null
     private var isCameraFacingFront = true
-    
     private var isLive = false
+    
+    private var displaySurface: Surface? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(R.style.CameraKitTheme)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_camera)
-
-        Log.d(TAG, "CameraActivity started - Direct RTMP Mode")
 
         if (!supported(this)) {
             Toast.makeText(this, "Camera Kit not supported", Toast.LENGTH_SHORT).show()
@@ -63,7 +64,7 @@ class CameraActivity : AppCompatActivity(), ConnectCheckerRtmp {
         progressBar.visibility = View.VISIBLE
         lensesRecyclerView = findViewById(R.id.lenses_recycler_view)
         
-        rtmpStreamManager = RtmpStreamManager(this, this)
+        rtmpManager = RtmpManager(this, this)
         
         val btnGoLive = findViewById<Button>(R.id.btn_go_live)
         btnGoLive.setOnClickListener { handleStreamingToggle() }
@@ -75,36 +76,56 @@ class CameraActivity : AppCompatActivity(), ConnectCheckerRtmp {
         lensesRecyclerView.adapter = lensesAdapter
 
         imageProcessorSource = CameraXImageProcessorSource(context = this, lifecycleOwner = this)
-        streamReplicator = StreamReplicator(480, 854)
 
-        cameraKitSession = Session(this) {
-            imageProcessorSource(imageProcessorSource)
-            attachTo(findViewById<ViewStub>(R.id.camera_kit_stub))
-        }
-
-        cameraKitSession.processor.connectOutput(object : ImageProcessor.Output {
-            override val purpose: ImageProcessor.Output.Purpose = ImageProcessor.Output.Purpose.PREVIEW
-            override fun writeFrame(): ImageProcessor.Output.Frame {
-                return object : ImageProcessor.Output.Frame {
-                    override val timestamp: Long get() = System.nanoTime()
-                    override fun recycle() {}
-                }
+        // Setup the manual SurfaceView for preview
+        val surfaceView = findViewById<SurfaceView>(R.id.manual_preview_view)
+        surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                displaySurface = holder.surface
+                initPipeline()
             }
-            // Real-time link
-            fun onFrame(frame: ImageProcessor.Output.Frame) {
-                if (isLive) {
-                    try {
-                        val textureIdField = frame.javaClass.getDeclaredField("textureId")
-                        textureIdField.isAccessible = true
-                        val textureId = textureIdField.get(frame) as Int
-                        streamReplicator?.render(textureId, frame.timestamp)
-                    } catch (e: Exception) {}
-                }
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {}
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                displaySurface = null
+                stopPipeline()
             }
         })
 
         getPermissions()
+    }
 
+    private fun initPipeline() {
+        // 1. Initialize RtmpManager Video Encoder to get its Surface
+        val encoderSurface = rtmpManager.initStreaming()
+        
+        // 2. Setup SurfaceReplicator (Main Preview + Encoder)
+        surfaceReplicator?.stop()
+        surfaceReplicator = SurfaceReplicator(displaySurface, encoderSurface, 480, 854)
+        surfaceReplicator?.start()
+
+        // 3. Get the "Input" surface that Replicator provides, which Camera Kit will draw into
+        val replicatorInput = surfaceReplicator?.awaitInputSurface(2000)
+        
+        cameraKitSession = Session(this) {
+            imageProcessorSource(imageProcessorSource)
+        }
+
+        // 4. Connect Camera Kit output to the Replicator Input Surface
+        if (replicatorInput != null) {
+            cameraKitSession.processor.connectOutput(object : ImageProcessor.Output.BackedBySurface(
+                replicatorInput, 
+                ImageProcessor.Output.Purpose.RECORDING
+            ) {
+                override fun writeFrame(): ImageProcessor.Output.Frame {
+                    return object : ImageProcessor.Output.Frame {
+                        override val timestamp: Long get() = System.nanoTime()
+                        override fun recycle() {}
+                    }
+                }
+            })
+        }
+
+        // Observe Lenses
         lensRepositorySubscription = cameraKitSession.lenses.repository.observe(
             LensesComponent.Repository.QueryCriteria.Available(setOf(LENS_GROUP_ID))
         ) { result ->
@@ -118,28 +139,24 @@ class CameraActivity : AppCompatActivity(), ConnectCheckerRtmp {
         }
     }
 
+    private fun stopPipeline() {
+        surfaceReplicator?.stop()
+        surfaceReplicator = null
+        if (::cameraKitSession.isInitialized) cameraKitSession.close()
+    }
+
     private fun handleStreamingToggle() {
         val btnGoLive = findViewById<Button>(R.id.btn_go_live)
         if (isLive) {
             isLive = false
-            rtmpStreamManager.stopStream()
+            rtmpManager.stopStream()
             btnGoLive.text = "GO LIVE"
             btnGoLive.setBackgroundColor(0xFFFF0000.toInt())
         } else {
-            Log.d(RTMP_TAG, "Go Live Clicked - Starting Direct Stream")
-            if (rtmpStreamManager.startStream(RTMP_URL)) {
-                val streamSurface = rtmpStreamManager.getInputSurface()
-                if (streamSurface != null) {
-                    streamReplicator?.setup(null, streamSurface)
-                    isLive = true
-                    btnGoLive.text = "STOP"
-                    btnGoLive.setBackgroundColor(0xFF00FF00.toInt())
-                } else {
-                    rtmpStreamManager.stopStream()
-                    Toast.makeText(this, "Surface Acquisition Failed", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                Toast.makeText(this, "Connect Failed", Toast.LENGTH_SHORT).show()
+            if (rtmpManager.startStream(RTMP_URL)) {
+                isLive = true
+                btnGoLive.text = "STOP"
+                btnGoLive.setBackgroundColor(0xFF00FF00.toInt())
             }
         }
     }
@@ -155,7 +172,7 @@ class CameraActivity : AppCompatActivity(), ConnectCheckerRtmp {
     private fun flipCamera() {
         runOnUiThread {
             isCameraFacingFront = !isCameraFacingFront
-            startPreview()
+            imageProcessorSource.startPreview(isCameraFacingFront)
         }
     }
 
@@ -163,7 +180,7 @@ class CameraActivity : AppCompatActivity(), ConnectCheckerRtmp {
         val requiredPerms = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
         permissionRequest = HeadlessFragmentPermissionRequester(this, requiredPerms.toSet()) { perms ->
             if (perms[Manifest.permission.CAMERA] == true && perms[Manifest.permission.RECORD_AUDIO] == true) {
-                startPreview()
+                imageProcessorSource.startPreview(isCameraFacingFront)
             } else {
                 Toast.makeText(this, "Permissions Needed", Toast.LENGTH_LONG).show()
                 finish()
@@ -171,25 +188,23 @@ class CameraActivity : AppCompatActivity(), ConnectCheckerRtmp {
         }
     }
 
-    private fun startPreview() { imageProcessorSource.startPreview(isCameraFacingFront) }
-
     override fun onDestroy() {
         permissionRequest?.close()
         lensRepositorySubscription?.close()
-        rtmpStreamManager.release()
-        streamReplicator?.release()
-        if (::cameraKitSession.isInitialized) cameraKitSession.close()
+        rtmpManager.release()
+        stopPipeline()
         super.onDestroy()
     }
 
+    // RTMP Callbacks
     override fun onConnectionStartedRtmp(rtmpUrl: String) {}
     override fun onConnectionSuccessRtmp() {
-        runOnUiThread { Toast.makeText(this, "LIVE!", Toast.LENGTH_SHORT).show() }
+        runOnUiThread { Toast.makeText(this, "Connected!", Toast.LENGTH_SHORT).show() }
     }
     override fun onConnectionFailedRtmp(reason: String) {
         runOnUiThread {
             isLive = false
-            rtmpStreamManager.stopStream()
+            rtmpManager.stopStream()
             findViewById<Button>(R.id.btn_go_live).apply {
                 text = "GO LIVE"; setBackgroundColor(0xFFFF0000.toInt())
             }
