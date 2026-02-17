@@ -8,6 +8,12 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
+/**
+ * SurfaceReplicator
+ * Mirrors frames from Camera Kit (inputSurface) to:
+ * 1. Mobile Preview (full screen)
+ * 2. RTMP Encoder (480p)
+ */
 class SurfaceReplicator(
     private val previewSurface: Surface?,
     private val encoderSurface: Surface?,
@@ -38,7 +44,9 @@ class SurfaceReplicator(
     private var running = false
     private val surfaceLock = Object()
 
+    // Full screen quad
     private val VERTICES = floatArrayOf(-1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f)
+    // Flipped V-coordinates for upright preview
     private val TEX_COORDS_FLIPPED = floatArrayOf(0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f)
 
     private val vertexBuffer: FloatBuffer = ByteBuffer.allocateDirect(VERTICES.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().put(VERTICES).apply { position(0) }
@@ -80,10 +88,12 @@ class SurfaceReplicator(
             if (program == 0) return
 
             var lastTimeNs = System.nanoTime()
+            val frameIntervalNs = (1000000000 / 30).toLong() // Target 30 FPS
+
             while (running) {
                 val now = System.nanoTime()
-                if (now - lastTimeNs < 16_000_000) {
-                    Thread.sleep(2)
+                if (now - lastTimeNs < frameIntervalNs) {
+                    Thread.sleep(5)
                     continue
                 }
                 lastTimeNs = now
@@ -97,13 +107,19 @@ class SurfaceReplicator(
 
                 if (eglPreviewSurface != EGL14.EGL_NO_SURFACE) {
                     EGL14.eglMakeCurrent(eglDisplay, eglPreviewSurface, eglPreviewSurface, eglContext)
-                    drawFrame()
+                    // Use actual surface dimensions for preview to fill screen
+                    val surfaceWidth = IntArray(1)
+                    val surfaceHeight = IntArray(1)
+                    EGL14.eglQuerySurface(eglDisplay, eglPreviewSurface, EGL14.EGL_WIDTH, surfaceWidth, 0)
+                    EGL14.eglQuerySurface(eglDisplay, eglPreviewSurface, EGL14.EGL_HEIGHT, surfaceHeight, 0)
+                    drawFrame(surfaceWidth[0], surfaceHeight[0])
                     EGL14.eglSwapBuffers(eglDisplay, eglPreviewSurface)
                 }
 
                 if (eglEncoderSurface != EGL14.EGL_NO_SURFACE) {
                     EGL14.eglMakeCurrent(eglDisplay, eglEncoderSurface, eglEncoderSurface, eglContext)
-                    drawFrame()
+                    // Encoder uses the configured streaming resolution
+                    drawFrame(width, height)
                     EGL14.eglSwapBuffers(eglDisplay, eglEncoderSurface)
                 }
             }
@@ -129,8 +145,16 @@ class SurfaceReplicator(
         eglContext = EGL14.eglCreateContext(eglDisplay, eglConfig, EGL14.EGL_NO_CONTEXT, intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE), 0)
     }
 
+    private fun initTargets() {
+        val attribs = intArrayOf(EGL14.EGL_NONE)
+        if (previewSurface != null) eglPreviewSurface = EGL14.eglCreateWindowSurface(eglDisplay, eglConfig, previewSurface, attribs, 0)
+        if (encoderSurface != null) eglEncoderSurface = EGL14.eglCreateWindowSurface(eglDisplay, eglConfig, encoderSurface, attribs, 0)
+    }
+
     private fun initSourceTexture() {
         val currentSurface = if (eglPreviewSurface != EGL14.EGL_NO_SURFACE) eglPreviewSurface else eglEncoderSurface
+        if (currentSurface == EGL14.EGL_NO_SURFACE) return // Nothing to render to
+
         EGL14.eglMakeCurrent(eglDisplay, currentSurface, currentSurface, eglContext)
 
         val tex = IntArray(1)
@@ -145,12 +169,6 @@ class SurfaceReplicator(
         inputSurface = Surface(sourceTexture)
         
         synchronized(surfaceLock) { surfaceLock.notifyAll() }
-    }
-
-    private fun initTargets() {
-        val attribs = intArrayOf(EGL14.EGL_NONE)
-        if (previewSurface != null) eglPreviewSurface = EGL14.eglCreateWindowSurface(eglDisplay, eglConfig, previewSurface, attribs, 0)
-        if (encoderSurface != null) eglEncoderSurface = EGL14.eglCreateWindowSurface(eglDisplay, eglConfig, encoderSurface, attribs, 0)
     }
 
     private fun initShader() {
@@ -174,8 +192,8 @@ class SurfaceReplicator(
         return s
     }
 
-    private fun drawFrame() {
-        GLES20.glViewport(0, 0, width, height)
+    private fun drawFrame(w: Int, h: Int) {
+        GLES20.glViewport(0, 0, w, h)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         GLES20.glUseProgram(program)
         GLES20.glEnableVertexAttribArray(aPositionLocation)

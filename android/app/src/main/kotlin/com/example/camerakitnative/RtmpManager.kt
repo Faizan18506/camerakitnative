@@ -36,7 +36,7 @@ class RtmpManager(private val context: Context, private val connectChecker: Conn
     // Video Config (Upright Portrait for 480p)
     private var width = 480
     private var height = 854
-    private var bitrate = 1200000 // 1.2 Mbps
+    private var bitrate = 800000 // 800 Kbps - Optimized for stability
     private var fps = 30
 
     // Audio members
@@ -47,7 +47,7 @@ class RtmpManager(private val context: Context, private val connectChecker: Conn
     private val sampleRate = 44100
     private val channelConfig = AudioFormat.CHANNEL_IN_STEREO
     private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-    private val audioBitrate = 128 * 1024
+    private val audioBitrate = 96 * 1024 // 96 kbps audio
 
     fun configure(width: Int, height: Int, bitrate: Int, fps: Int) {
         this.width = width
@@ -64,7 +64,7 @@ class RtmpManager(private val context: Context, private val connectChecker: Conn
             format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             format.setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             format.setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+            format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2) // 2s I-frame interval
             format.setInteger(MediaFormat.KEY_LATENCY, 0)
 
             videoEncoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
