@@ -34,6 +34,9 @@ dependencyResolutionManagement {
                 includeGroup("com.snapchat.kit.sdk")
             }
         }
+
+        // 3. JitPack for Pedro SG94 RTMP library
+        maven { url = uri("https://jitpack.io") }
     }
 }
 

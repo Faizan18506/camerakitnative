@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Camera preview window -->
+    <!-- Reverting back to ViewStub as required by Camera Kit Session.attachTo() -->
     <ViewStub
         android:id="@+id/camera_kit_stub"
         android:layout_width="match_parent"
@@ -24,6 +24,18 @@
         android:src="@android:drawable/ic_menu_rotate"
         android:tint="#FFFFFF"
         android:contentDescription="Flip Camera" />
+
+    <!-- Go Live Button (Below Flip Button) -->
+    <Button
+        android:id="@+id/btn_go_live"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="100dp"
+        android:layout_marginEnd="20dp"
+        android:text="GO LIVE"
+        android:backgroundTint="#FF0000"
+        android:textColor="#FFFFFF" />
 
     <!-- Custom Carousel: RecyclerView -->
     <androidx.recyclerview.widget.RecyclerView
