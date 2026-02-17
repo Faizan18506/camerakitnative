@@ -95,22 +95,19 @@ class CameraActivity : AppCompatActivity(), ConnectCheckerRtmp {
     }
 
     private fun initPipeline() {
-        // 1. Initialize RtmpManager Video Encoder to get its Surface
-        val encoderSurface = rtmpManager.initStreaming()
-        
-        // 2. Setup SurfaceReplicator (Main Preview + Encoder)
+        // Start Replicator immediately with ONLY Display Surface (Preview)
+        // Encoder surface is null initially
         surfaceReplicator?.stop()
-        surfaceReplicator = SurfaceReplicator(displaySurface, encoderSurface, 480, 854)
+        surfaceReplicator = SurfaceReplicator(displaySurface, null, 480, 854)
         surfaceReplicator?.start()
 
-        // 3. Get the "Input" surface that Replicator provides, which Camera Kit will draw into
+        // Get Input Surface for Camera Kit
         val replicatorInput = surfaceReplicator?.awaitInputSurface(2000)
         
         cameraKitSession = Session(this) {
             imageProcessorSource(imageProcessorSource)
         }
 
-        // 4. Connect Camera Kit output to the Replicator Input Surface
         if (replicatorInput != null) {
             cameraKitSession.processor.connectOutput(object : ImageProcessor.Output.BackedBySurface(
                 replicatorInput, 
@@ -150,14 +147,51 @@ class CameraActivity : AppCompatActivity(), ConnectCheckerRtmp {
         if (isLive) {
             isLive = false
             rtmpManager.stopStream()
+            
+            // Revert to Preview Only
+            restartReplicator(null)
+            
             btnGoLive.text = "GO LIVE"
             btnGoLive.setBackgroundColor(0xFFFF0000.toInt())
         } else {
-            if (rtmpManager.startStream(RTMP_URL)) {
-                isLive = true
-                btnGoLive.text = "STOP"
-                btnGoLive.setBackgroundColor(0xFF00FF00.toInt())
+            // 1. Init Encoder
+            val encoderSurface = rtmpManager.initStreaming()
+            if (encoderSurface != null) {
+                // 2. Restart Replicator with BOTH surfaces
+                restartReplicator(encoderSurface)
+                
+                // 3. Start RTMP
+                if (rtmpManager.startStream(RTMP_URL)) {
+                    isLive = true
+                    btnGoLive.text = "STOP"
+                    btnGoLive.setBackgroundColor(0xFF00FF00.toInt())
+                }
             }
+        }
+    }
+
+    private fun restartReplicator(encoderS: Surface?) {
+        // We need to keep Camera Kit connected to the SAME Input Surface if possible,
+        // but SurfaceReplicator creates a new Input Surface on restart.
+        // So we must re-connect Camera Kit.
+        
+        surfaceReplicator?.stop()
+        surfaceReplicator = SurfaceReplicator(displaySurface, encoderS, 480, 854)
+        surfaceReplicator?.start()
+        
+        val newInput = surfaceReplicator?.awaitInputSurface(1000)
+        if (newInput != null) {
+             cameraKitSession.processor.connectOutput(object : ImageProcessor.Output.BackedBySurface(
+                newInput, 
+                ImageProcessor.Output.Purpose.RECORDING
+            ) {
+                override fun writeFrame(): ImageProcessor.Output.Frame {
+                    return object : ImageProcessor.Output.Frame {
+                        override val timestamp: Long get() = System.nanoTime()
+                        override fun recycle() {}
+                    }
+                }
+            })
         }
     }
 
